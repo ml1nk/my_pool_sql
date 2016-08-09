@@ -87,19 +87,26 @@ Pool.prototype.dispose = function() {
  * @param options The options
  * @param fn The callback function.
  */
-Pool.prototype.query = function(query, options, fn) {
+Pool.prototype.query = function(query, params, options, fn) {
   // Check if the pool has not been disposed of.
   //console.log('[my_pool_sql] The pool size before query: ', this._connections.length);
   if (!this._disposed) {
     // Check if the options variable is a function.
-    if (typeof options == 'function') {
+    if (typeof options === 'function' && arguments.length === 3) {
       // Set the callback to the options.
       fn = options;
       // Initialize the options.
       options = {};
     }
+
+    if (typeof params === 'function' && arguments.length === 2) {
+      // Set the callback to the options.
+      fn = params;
+      // Initialize the options.
+      params = {};
+    }
     // Push the query to the pending operations.
-    this._pending.push({claiming: false, query: query, options: options, fn: fn});
+    this._pending.push({claiming: false, query: query, params: params, options: options, fn: fn});
     // Update the connection pool and pending queries.
     this._update();
     // Iterate until sufficient managed _connections are establishing.
@@ -135,7 +142,7 @@ Pool.prototype._create = function() {
     this._currentNumberOfConnectionsEstablishing++;
 
     // Connect to the database.
-    connection.on('connect', function() {
+    connection.on('ready', function() {
       // Decrement the current number of connections being established.
       pool._currentNumberOfConnectionsEstablishing--;
 
@@ -199,11 +206,11 @@ Pool.prototype._update = function() {
       }
       else {
         // Execute the query using this handler to rebound the connection.
-        connection.query(pending.query, pending.options)
+        connection.query(pending.query, pending.params, pending.options)
           .on('result', function(result){
             connection.end();
             var rows = [];
-            result.on('row', function(row){
+            result.on('data', function(row){
               rows.push(row);
             })
               .on('abort', function(){
@@ -212,13 +219,13 @@ Pool.prototype._update = function() {
                 // Send the error to the callback function.
                 pending.fn(err, {query: result, rows: null, info: null});
               })
-              .on('end', function(info){
+              .on('end', function(){
                 if(iflog) {
                   var logtimestamp = date_format("[yyyy-MM-dd hh:mm:ss]", new Date());
-                  console.log('[my_pool_sql]' + logtimestamp + ' Query: ', result._parent._query);
-                  console.log('[my_pool_sql]' + logtimestamp + ' Query Effects: ', info);
+                  //console.log('[my_pool_sql]' + logtimestamp + ' Query: ', result._parent._query);
+                  console.log('[my_pool_sql]' + logtimestamp + ' Query Effects: ', result.info);
                 }
-                pending.fn(null, {query: result, rows: rows, info: info});
+                pending.fn(null, {query: result, rows: rows, info: result.info});
               });
           })
           .on('abort', function(){
